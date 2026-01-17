@@ -1,0 +1,63 @@
+version: "3.9"
+
+services:
+  api:
+    build:
+      context: ./apps/api
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - WEBAPP_URL=${WEBAPP_URL}
+      - API_BASE_URL=${API_BASE_URL}
+      - ADMIN_SECRET=${ADMIN_SECRET}
+      - ADMIN_TELEGRAM_IDS=${ADMIN_TELEGRAM_IDS}
+      - LLM_BASE_URL=${LLM_BASE_URL}
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_MODEL=${LLM_MODEL}
+      - JWT_SECRET=${JWT_SECRET}
+      - STORAGE_DIR=${STORAGE_DIR}
+      - SQLITE_PATH=${SQLITE_PATH}
+      - TTS_BASE_URL=${TTS_BASE_URL}
+      - OUTPUT_AUDIO_FORMAT=${OUTPUT_AUDIO_FORMAT}
+    volumes:
+      - ./data:/data
+      - ./storage:/data/storage
+    ports:
+      - "8080:8080"
+    depends_on:
+      - tts
+
+  bot:
+    build:
+      context: ./apps/bot
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - WEBAPP_URL=${WEBAPP_URL}
+      - ADMIN_TELEGRAM_IDS=${ADMIN_TELEGRAM_IDS}
+      - API_BASE_URL=${API_BASE_URL}
+    depends_on:
+      - api
+
+  web:
+    build:
+      context: ./apps/web
+      args:
+        - VITE_API_BASE_URL=${API_BASE_URL}
+    environment:
+      - VITE_API_BASE_URL=${API_BASE_URL}
+    ports:
+      - "5173:5173"
+
+  tts:
+    build:
+      context: ./services/tts
+    environment:
+      - MODEL_DIR=/models
+    volumes:
+      - ./tts/models:/models
+    ports:
+      - "8000:8000"
+
+volumes:
+  data:
+  storage:
+  models:

@@ -1,0 +1,42 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("SQLITE_PATH")
+}
+
+enum StoryStatus {
+  generating_text
+  generating_audio
+  ready
+  error
+}
+
+model User {
+  id          String   @id @default(cuid())
+  telegramId  String   @unique
+  premiumUntil DateTime?
+  createdAt   DateTime @default(now())
+  stories     Story[]
+}
+
+model Story {
+  id          String      @id @default(cuid())
+  userId      String
+  user        User        @relation(fields: [userId], references: [id])
+  theme       String
+  ageGroup    String
+  style       String
+  duration    String
+  narrator    String
+  moral       String?
+  ending      String
+  status      StoryStatus @default(generating_text)
+  text        String?
+  audioPath   String?
+  errorMessage String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}

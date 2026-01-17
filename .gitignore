@@ -1,0 +1,16 @@
+node_modules
+.pnpm-store
+.dist
+.env
+.env.local
+apps/**/dist
+apps/**/.turbo
+apps/**/.cache
+apps/**/node_modules
+services/**/__pycache__
+services/**/.venv
+services/**/models
+services/**/output
+/storage
+/data
+*.log
