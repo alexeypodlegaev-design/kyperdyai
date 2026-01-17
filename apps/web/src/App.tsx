@@ -1,9 +1,14 @@
+import { Route, Routes, useNavigate } from "react-router-dom";
 import { Route, Routes, NavLink, useNavigate } from "react-router-dom";
 import Home from "./pages/Home";
 import CreateWizard from "./pages/CreateWizard";
 import Library from "./pages/Library";
 import StoryDetail from "./pages/StoryDetail";
 import PremiumSoon from "./pages/PremiumSoon";
+import Profile from "./pages/Profile";
+import { useEffect, useState } from "react";
+import { apiFetch } from "./api";
+import AppShell from "./components/AppShell";
 import { useEffect, useState } from "react";
 import { apiFetch } from "./api";
 
@@ -57,6 +62,16 @@ export default function App() {
   }
 
   return (
+    <AppShell>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/create" element={<CreateWizard />} />
+        <Route path="/library" element={<Library />} />
+        <Route path="/story/:id" element={<StoryDetail />} />
+        <Route path="/premium" element={<PremiumSoon />} />
+        <Route path="/profile" element={<Profile />} />
+      </Routes>
+    </AppShell>
     <div className="min-h-screen pb-20">
       <header className="sticky top-0 z-10 bg-slate-900/90 backdrop-blur border-b border-slate-800">
         <div className="px-6 py-4 flex items-center justify-between">

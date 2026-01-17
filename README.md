@@ -21,6 +21,39 @@ MVP Telegram Mini App + Bot + API + локальный TTS (CosyVoice) в вид
 docker compose up -d --build
 ```
 
+## UI
+- Web UI доступен на `http://localhost:5173`.
+- Основные экраны: главная (“Купердай”), мастер создания, библиотека, экран истории с плеером и профиль.
+
+## Smoke test
+1) Запуск сервисов:
+```
+docker compose up -d --build
+```
+2) Проверка здоровья API:
+```
+curl http://localhost:8080/health
+```
+3) Получить токен для теста (DEV_AUTH=1 в .env):
+```
+curl -X POST http://localhost:8080/api/auth/dev \\
+  -H \"Content-Type: application/json\" \\
+  -d '{\"telegramId\":\"dev-user\"}'
+```
+4) Создание истории (после авторизации Telegram WebApp):
+```
+curl -X POST http://localhost:8080/api/stories \\
+  -H \"Authorization: Bearer <JWT_TOKEN>\" \\
+  -H \"Content-Type: application/json\" \\
+  -d '{\"theme\":\"Космическое приключение\",\"ageGroup\":\"6-8\",\"style\":\"Сказка\",\"duration\":\"5\",\"narrator\":\"klaus\",\"ending\":\"Счастливый финал\"}'
+```
+5) Получение аудио:
+```
+curl -L http://localhost:8080/api/stories/<STORY_ID>/audio \\
+  -H \"Authorization: Bearer <JWT_TOKEN>\" \\
+  -o story.mp3
+```
+
 ## Админ Premium
 Включение premium для пользователя через бота:
 ```

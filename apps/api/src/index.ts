@@ -11,6 +11,24 @@ import PQueue from "p-queue";
 import { mkdir, writeFile } from "fs/promises";
 import { createReadStream } from "fs";
 import path from "path";
+import { randomUUID } from "crypto";
+import {
+  countStoriesSince,
+  createStory,
+  getActiveStory,
+  getStoryById,
+  getUserById,
+  initDb,
+  listStories,
+  setPremiumByTgId,
+  updateStoryById,
+  upsertUserByTgId
+} from "./db.js";
+
+const queue = new PQueue({ concurrency: 1 });
+
+initDb();
+
 
 const prisma = new PrismaClient();
 const queue = new PQueue({ concurrency: 1 });
@@ -28,6 +46,8 @@ const envSchema = z.object({
   STORAGE_DIR: z.string().min(1),
   SQLITE_PATH: z.string().min(1),
   TTS_BASE_URL: z.string().min(1),
+  OUTPUT_AUDIO_FORMAT: z.string().min(1),
+  DEV_AUTH: z.string().optional().default("0")
   OUTPUT_AUDIO_FORMAT: z.string().min(1)
 });
 
@@ -63,6 +83,33 @@ function parseInitData(initData: string) {
   return { data, hash, computedHash };
 }
 
+function isPremium(user: { is_premium: number }) {
+  return user.is_premium === 1;
+}
+
+function storyToResponse(story: any) {
+  let params: Record<string, any> = {};
+  if (story.params_json) {
+    try {
+      params = JSON.parse(story.params_json);
+    } catch {
+      params = {};
+    }
+  }
+  return {
+    id: story.id,
+    theme: params.theme ?? story.title,
+    ageGroup: params.ageGroup,
+    style: params.style,
+    duration: params.duration,
+    narrator: params.narrator,
+    moral: params.moral,
+    ending: params.ending,
+    status: story.status,
+    text: story.text,
+    audioPath: story.audio_path,
+    errorMessage: story.error,
+    createdAt: story.created_at
 async function ensureUser(telegramId: string) {
   return prisma.user.upsert({
     where: { telegramId },
@@ -104,6 +151,19 @@ server.post("/api/auth/telegram", async (request, reply) => {
   if (!userData?.id) {
     return reply.badRequest("Missing user data");
   }
+  const user = upsertUserByTgId(String(userData.id));
+  const token = server.jwt.sign({ sub: String(user.id), telegramId: user.tg_id });
+  return { token };
+});
+
+server.post("/api/auth/dev", async (request, reply) => {
+  if (env.DEV_AUTH !== "1") {
+    return reply.notFound();
+  }
+  const bodySchema = z.object({ telegramId: z.string().optional() });
+  const { telegramId } = bodySchema.parse(request.body ?? {});
+  const user = upsertUserByTgId(telegramId ?? "dev-user");
+  const token = server.jwt.sign({ sub: String(user.id), telegramId: user.tg_id });
   const user = await ensureUser(String(userData.id));
   const token = server.jwt.sign({ sub: user.id, telegramId: user.telegramId });
   return { token };
@@ -117,6 +177,8 @@ server.post("/api/admin/premium", async (request, reply) => {
     return reply.unauthorized("Invalid admin secret");
   }
   const { telegramId, days } = bodySchema.parse(request.body);
+  const user = setPremiumByTgId(telegramId, true);
+  return { telegramId: user?.tg_id ?? telegramId, premiumUntil: days };
   const premiumUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
   const user = await prisma.user.upsert({
     where: { telegramId },
@@ -138,11 +200,13 @@ server.post("/api/stories", { preHandler: server.authenticate }, async (request:
   });
   const payload = bodySchema.parse(request.body);
 
+  const user = getUserById(Number(request.user.sub));
   const user = await prisma.user.findUnique({ where: { id: request.user.sub } });
   if (!user) {
     return reply.unauthorized("Unknown user");
   }
 
+  const activeStory = getActiveStory(user.id);
   const activeStory = await prisma.story.findFirst({
     where: { userId: user.id, status: { in: [StoryStatus.generating_text, StoryStatus.generating_audio] } }
   });
@@ -152,6 +216,8 @@ server.post("/api/stories", { preHandler: server.authenticate }, async (request:
 
   const premium = isPremium(user);
   if (!premium) {
+    const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const count = countStoriesSince(user.id, hourAgo);
     const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const count = await prisma.story.count({
       where: { userId: user.id, createdAt: { gte: hourAgo } }
@@ -160,6 +226,8 @@ server.post("/api/stories", { preHandler: server.authenticate }, async (request:
       return reply.tooManyRequests("Free limit reached");
     }
   } else {
+    const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const count = countStoriesSince(user.id, dayAgo);
     const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const count = await prisma.story.count({
       where: { userId: user.id, createdAt: { gte: dayAgo } }
@@ -169,6 +237,20 @@ server.post("/api/stories", { preHandler: server.authenticate }, async (request:
     }
   }
 
+  const storyId = randomUUID();
+  const story = createStory({
+    id: storyId,
+    user_id: user.id,
+    title: payload.theme,
+    text: null,
+    params_json: JSON.stringify(payload),
+    status: "generating_text",
+    error: null,
+    audio_path: null,
+    duration_sec: payload.duration === "5" ? 300 : 1200
+  });
+
+  queue.add(() => processStory(story.id, user.tg_id, payload));
   const story = await prisma.story.create({
     data: {
       userId: user.id,
@@ -189,6 +271,7 @@ server.post("/api/stories", { preHandler: server.authenticate }, async (request:
 });
 
 server.get("/api/stories", { preHandler: server.authenticate }, async (request: any) => {
+  const stories = listStories(Number(request.user.sub), 20);
   const stories = await prisma.story.findMany({
     where: { userId: request.user.sub },
     orderBy: { createdAt: "desc" },
@@ -198,6 +281,7 @@ server.get("/api/stories", { preHandler: server.authenticate }, async (request: 
 });
 
 server.get("/api/stories/:id", { preHandler: server.authenticate }, async (request: any, reply) => {
+  const story = getStoryById(request.params.id, Number(request.user.sub));
   const story = await prisma.story.findFirst({
     where: { id: request.params.id, userId: request.user.sub }
   });
@@ -208,6 +292,11 @@ server.get("/api/stories/:id", { preHandler: server.authenticate }, async (reque
 });
 
 server.get("/api/stories/:id/audio", { preHandler: server.authenticate }, async (request: any, reply) => {
+  const story = getStoryById(request.params.id, Number(request.user.sub));
+  if (!story?.audio_path) {
+    return reply.notFound("Audio not ready");
+  }
+  const audioPath = path.join(env.STORAGE_DIR, story.audio_path);
   const story = await prisma.story.findFirst({
     where: { id: request.params.id, userId: request.user.sub }
   });
@@ -228,6 +317,13 @@ server.addHook("onSend", async (_request, reply, payload) => {
   return payload;
 });
 
+async function processStory(storyId: string, telegramId: string, payload: any) {
+  try {
+    updateStoryById(storyId, { status: "generating_text" });
+    const wordLimit = payload.duration === "5" ? 900 : 3600;
+    const storyText = await generateStoryText({ ...payload, wordLimit });
+
+    updateStoryById(storyId, { text: storyText, status: "generating_audio" });
 
 async function processStory(storyId: string, telegramId: string, payload: any) {
   try {
@@ -243,6 +339,9 @@ async function processStory(storyId: string, telegramId: string, payload: any) {
     const outputPath = path.join(env.STORAGE_DIR, filename);
     await writeFile(outputPath, audioBuffer);
 
+    updateStoryById(storyId, { status: "ready", audio_path: filename });
+  } catch (error: any) {
+    updateStoryById(storyId, { status: "error", error: error?.message ?? "Unknown error" });
     await prisma.story.update({
       where: { id: storyId },
       data: { status: StoryStatus.ready, audioPath: filename }
