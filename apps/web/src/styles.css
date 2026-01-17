@@ -63,4 +63,6 @@ body {
     transform: scale(1.15);
     opacity: 1;
   }
+body {
+  font-family: "Inter", system-ui, sans-serif;
 }

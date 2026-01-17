@@ -34,6 +34,11 @@ export default {
           100: "#fff4bf",
           300: "#ffd66b",
           400: "#ffc23d"
+      colors: {
+        brand: {
+          50: "#f4f7ff",
+          500: "#4f6ef7",
+          700: "#2d3ea6"
         }
       }
     }
