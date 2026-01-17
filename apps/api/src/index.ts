@@ -41,7 +41,8 @@ const envSchema = z.object({
   STORAGE_DIR: z.string().min(1),
   SQLITE_PATH: z.string().min(1),
   TTS_BASE_URL: z.string().min(1),
-  OUTPUT_AUDIO_FORMAT: z.string().min(1)
+  OUTPUT_AUDIO_FORMAT: z.string().min(1),
+  DEV_AUTH: z.string().optional().default("0")
 });
 
 const env = envSchema.parse(process.env);
@@ -118,6 +119,17 @@ server.post("/api/auth/telegram", async (request, reply) => {
     return reply.badRequest("Missing user data");
   }
   const user = upsertUserByTgId(String(userData.id));
+  const token = server.jwt.sign({ sub: String(user.id), telegramId: user.tg_id });
+  return { token };
+});
+
+server.post("/api/auth/dev", async (request, reply) => {
+  if (env.DEV_AUTH !== "1") {
+    return reply.notFound();
+  }
+  const bodySchema = z.object({ telegramId: z.string().optional() });
+  const { telegramId } = bodySchema.parse(request.body ?? {});
+  const user = upsertUserByTgId(telegramId ?? "dev-user");
   const token = server.jwt.sign({ sub: String(user.id), telegramId: user.tg_id });
   return { token };
 });

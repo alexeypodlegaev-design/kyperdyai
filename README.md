@@ -34,14 +34,20 @@ docker compose up -d --build
 ```
 curl http://localhost:8080/health
 ```
-3) Создание истории (после авторизации Telegram WebApp):
+3) Получить токен для теста (DEV_AUTH=1 в .env):
+```
+curl -X POST http://localhost:8080/api/auth/dev \\
+  -H \"Content-Type: application/json\" \\
+  -d '{\"telegramId\":\"dev-user\"}'
+```
+4) Создание истории (после авторизации Telegram WebApp):
 ```
 curl -X POST http://localhost:8080/api/stories \\
   -H \"Authorization: Bearer <JWT_TOKEN>\" \\
   -H \"Content-Type: application/json\" \\
   -d '{\"theme\":\"Космическое приключение\",\"ageGroup\":\"6-8\",\"style\":\"Сказка\",\"duration\":\"5\",\"narrator\":\"klaus\",\"ending\":\"Счастливый финал\"}'
 ```
-4) Получение аудио:
+5) Получение аудио:
 ```
 curl -L http://localhost:8080/api/stories/<STORY_ID>/audio \\
   -H \"Authorization: Bearer <JWT_TOKEN>\" \\
